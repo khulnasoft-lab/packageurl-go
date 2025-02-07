@@ -55,7 +55,8 @@ var (
 	// TypeAlpm is a pkg:alpm purl.
 	TypeAlpm = "alpm"
 	// TypeApk is a pkg:apk purl.
-	TypeApk = "apk"
+	TypeApk    = "apk"
+	TypeAlpine = "apk" // note: distinct from upstream (alias for apk)
 	// TypeBitbucket is a pkg:bitbucket purl.
 	TypeBitbucket = "bitbucket"
 	// TypeBitnami is a pkg:bitnami purl.
@@ -90,7 +91,9 @@ var (
 	TypeHex = "hex"
 	// TypeHuggingface is pkg:huggingface purl.
 	TypeHuggingface = "huggingface"
-	// TypeMLflow is pkg:mlflow purl.
+	// TypeLuaRocks is a pkg:luarocks purl.
+	TypeLuaRocks = "luarocks"
+	// TypeMLFlow is pkg:mlflow purl.
 	TypeMLFlow = "mlflow"
 	// TypeMaven is a pkg:maven purl.
 	TypeMaven = "maven"
@@ -98,19 +101,19 @@ var (
 	TypeNPM = "npm"
 	// TypeNuget is a pkg:nuget purl.
 	TypeNuget = "nuget"
-	// TypeOCI is a pkg:oci purl
+	// TypeOCI is a pkg:oci purl.
 	TypeOCI = "oci"
 	// TypePub is a pkg:pub purl.
 	TypePub = "pub"
 	// TypePyPi is a pkg:pypi purl.
 	TypePyPi = "pypi"
-	// TypeQPKG is a pkg:qpkg purl.
+	// TypeQpkg is a pkg:qpkg purl.
 	TypeQpkg = "qpkg"
 	// TypeRPM is a pkg:rpm purl.
 	TypeRPM = "rpm"
 	// TypeSWID is pkg:swid purl
 	TypeSWID = "swid"
-	// TypeSwift is pkg:swift purl
+	// TypeSwift is pkg:swift purl.
 	TypeSwift = "swift"
 
 	// KnownTypes is a map of types that are officially supported by the spec.
@@ -118,6 +121,7 @@ var (
 	KnownTypes = map[string]struct{}{
 		TypeAlpm:        {},
 		TypeApk:         {},
+		TypeAlpine:      {}, // note: distinct from upstream (alias for apk)
 		TypeBitbucket:   {},
 		TypeBitnami:     {},
 		TypeCargo:       {},
@@ -135,6 +139,7 @@ var (
 		TypeHackage:     {},
 		TypeHex:         {},
 		TypeHuggingface: {},
+		TypeLuaRocks:    {},
 		TypeMaven:       {},
 		TypeMLFlow:      {},
 		TypeNPM:         {},
@@ -174,7 +179,6 @@ var (
 	TypeHaxe        = "haxe"
 	TypeHelm        = "helm"
 	TypeJulia       = "julia"
-	TypeLua         = "lua"
 	TypeMelpa       = "melpa"
 	TypeMeteor      = "meteor"
 	TypeNim         = "nim"
@@ -182,6 +186,7 @@ var (
 	TypeOpam        = "opam"
 	TypeOpenwrt     = "openwrt"
 	TypeOsgi        = "osgi"
+	TypeOTP         = "otp" // note: distinct from upstream
 	TypeP2          = "p2"
 	TypePear        = "pear"
 	TypePecl        = "pecl"
@@ -227,7 +232,6 @@ var (
 		TypeHaxe:        {},
 		TypeHelm:        {},
 		TypeJulia:       {},
-		TypeLua:         {},
 		TypeMelpa:       {},
 		TypeMeteor:      {},
 		TypeNim:         {},
@@ -235,6 +239,7 @@ var (
 		TypeOpam:        {},
 		TypeOpenwrt:     {},
 		TypeOsgi:        {},
+		TypeOTP:         {},
 		TypeP2:          {},
 		TypePear:        {},
 		TypePecl:        {},
@@ -260,7 +265,7 @@ type Qualifier struct {
 
 func (q Qualifier) String() string {
 	// A value must be a percent-encoded string
-	return fmt.Sprintf("%s=%s", q.Key, url.PathEscape(q.Value))
+	return fmt.Sprintf("%s=%s", escape(q.Key), escape(q.Value))
 }
 
 // Qualifiers is a slice of key=value pairs, with order preserved as it appears
@@ -268,12 +273,31 @@ func (q Qualifier) String() string {
 type Qualifiers []Qualifier
 
 // urlQuery returns a raw URL query with all the qualifiers as keys + values.
-func (q Qualifiers) urlQuery() (rawQuery string) {
-	v := make(url.Values)
-	for _, qq := range q {
-		v.Add(qq.Key, qq.Value)
+func (q Qualifiers) urlQuery() string {
+	if len(q) == 0 {
+		return ""
 	}
-	return v.Encode()
+	var buf strings.Builder
+	keys := make([]string, 0, len(q))
+	values := make(map[string][]string)
+	for _, item := range q {
+		keys = append(keys, item.Key)
+		values[item.Key] = append(values[item.Key], item.Value)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		vs := values[k]
+		keyEscaped := escape(k)
+		for _, v := range vs {
+			if buf.Len() > 0 {
+				buf.WriteByte('&')
+			}
+			buf.WriteString(keyEscaped)
+			buf.WriteByte('=')
+			buf.WriteString(escape(v))
+		}
+	}
+	return buf.String()
 }
 
 // QualifiersFromMap constructs a Qualifiers slice from a string map. To get a
@@ -293,28 +317,28 @@ func QualifiersFromMap(mm map[string]string) Qualifiers {
 }
 
 // Map converts a Qualifiers struct to a string map.
-func (qq Qualifiers) Map() map[string]string {
+func (q Qualifiers) Map() map[string]string {
 	m := make(map[string]string)
 
-	for i := 0; i < len(qq); i++ {
-		k := qq[i].Key
-		v := qq[i].Value
+	for i := 0; i < len(q); i++ {
+		k := q[i].Key
+		v := q[i].Value
 		m[k] = v
 	}
 
 	return m
 }
 
-func (qq Qualifiers) String() string {
+func (q Qualifiers) String() string {
 	var kvPairs []string
-	for _, q := range qq {
+	for _, q := range q {
 		kvPairs = append(kvPairs, q.String())
 	}
 	return strings.Join(kvPairs, "&")
 }
 
-func (qq *Qualifiers) Normalize() error {
-	qs := *qq
+func (q *Qualifiers) Normalize() error {
+	qs := *q
 	normedQQ := make(Qualifiers, 0, len(qs))
 	for _, q := range qs {
 		if q.Key == "" {
@@ -336,7 +360,7 @@ func (qq *Qualifiers) Normalize() error {
 			return fmt.Errorf("duplicate qualifier key: %q", normedQQ[i].Key)
 		}
 	}
-	*qq = normedQQ
+	*q = normedQQ
 	return nil
 }
 
@@ -399,7 +423,7 @@ func (p PackageURL) String() string {
 
 // FromString parses a valid package url string into a PackageURL structure
 func FromString(purl string) (PackageURL, error) {
-	u, err := url.Parse(purl)
+	u, err := url.Parse(strings.TrimSpace(purl))
 	if err != nil {
 		return PackageURL{}, fmt.Errorf("failed to parse as URL: %w", err)
 	}
@@ -473,7 +497,8 @@ func (p *PackageURL) Normalize() error {
 	return validCustomRules(*p)
 }
 
-// escape the given string in a purl-compatible way.
+// escape the given string in a purl-compatible way
+// Source: https://github.com/package-url/purl-spec/blob/master/PURL-SPECIFICATION.rst#character-encoding
 func escape(s string) string {
 	// for compatibility with other implementations and the purl-spec, we want to escape all
 	// characters, which is what "QueryEscape" does. The issue with QueryEscape is that it encodes
@@ -566,6 +591,7 @@ func typeAdjustNamespace(purlType, ns string) string {
 		TypeDebian,
 		TypeGithub,
 		TypeGolang,
+		TypeNPM,
 		TypeRPM,
 		TypeQpkg:
 		return strings.ToLower(ns)
@@ -585,7 +611,8 @@ func typeAdjustName(purlType, name string, qualifiers Qualifiers) string {
 		TypeComposer,
 		TypeDebian,
 		TypeGithub,
-		TypeGolang:
+		TypeGolang,
+		TypeNPM:
 		return strings.ToLower(name)
 	case TypePyPi:
 		return strings.ToLower(strings.ReplaceAll(name, "_", "-"))
